@@ -42,3 +42,32 @@ Este módulo se divide en dos secciones operativas (en un control de pestañas):
 *   **B. Consulta Avanzada (Historial):** Es un buscador o reporteador dinámico. Permite al personal administrativo buscar visitas médicas anteriores aplicando múltiples filtros: ver todas las visitas de un Paciente en específico, consultar todo el historial de consultas hechas por un Médico en particular, o filtrar el registro de operaciones por fechas exactas.
 
 **Dependencias:** Es el módulo de mayor acoplamiento. Consume obligatoriamente registros de "Médicos", "Pacientes" y "Medicamentos".
+
+---
+
+## 8. Módulo "Autenticación de Usuarios (Login)"
+**Propósito:** Es la **puerta de entrada y control de acceso** al sistema. Verifica la identidad de cada usuario antes de permitirle operar cualquier módulo, y redirige su experiencia según el rol que tenga asignado.
+
+**Mecánica:**
+El módulo opera completamente **en memoria** (sin tabla SQL adicional) usando un repositorio estático simulado con tres usuarios de prueba precargados. El flujo de autenticación es el siguiente:
+
+1.  El usuario ingresa su correo y contraseña en el formulario `FrmLogin`.
+2.  La **BLL** (`UsuarioBLL`) aplica tres capas de seguridad antes de consultar los datos:
+    *   **Sanitización:** valida el formato del correo con una expresión regular RFC-5322 y rechaza contraseñas con caracteres sospechosos de inyección.
+    *   **Control de fuerza bruta:** bloquea temporalmente la cuenta por 30 segundos tras 3 intentos fallidos consecutivos. La UI muestra una cuenta regresiva en tiempo real.
+    *   **Retardo anti-timing:** introduce una espera artificial de 1.5 segundos para dificultar ataques de temporización.
+3.  La **DAL** (`UsuarioDAL`) busca el usuario por correo y compara la contraseña mediante su hash SHA-256 usando una comparación en tiempo constante (XOR bit a bit).
+4.  Si las credenciales son válidas, el sistema abre el panel correspondiente al **rol** del usuario:
+    *   **`FrmPanelAdmin`** (rol `admin`): Menú lateral con secciones de Usuarios, Reportes y Configuración.
+    *   **`FrmPanelCliente`** (rol `cliente`): Menú lateral con secciones de Mis Pedidos, Facturas y Mi Perfil.
+5.  Al cerrar sesión, `SesionActual.Limpiar()` nulifica la referencia del usuario en memoria RAM.
+
+**Credenciales de prueba:**
+
+| Correo | Contraseña | Rol |
+|---|---|---|
+| `admin@unapec.edu.do` | `Admin@2024` | admin |
+| `cliente@unapec.edu.do` | `Cliente@2024` | cliente |
+| `juan.perez@unapec.edu.do` | `Juan@5678` | cliente |
+
+**Dependencias:** Módulo independiente (no requiere SQL Server). Es el punto de entrada principal del sistema; todos los demás módulos quedan protegidos detrás de este login.

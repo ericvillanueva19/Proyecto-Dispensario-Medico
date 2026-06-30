@@ -63,21 +63,25 @@ Si los archivos `.cs` fueron generados fuera de Visual Studio, debes incluirlos 
 
 ---
 
-## Paso 4: Configurar el Formulario de Inicio
+## Paso 4: Configurar el Formulario de Inicio (Login)
 
-Por defecto, Visual Studio arranca con un `Form1`. Debes cambiar esto para que el proyecto arranque visualizando uno de los módulos principales.
+El sistema ahora incluye el módulo de autenticación. El **punto de entrada obligatorio** es `FrmLogin`, que controla el acceso a todos los demás módulos según el rol del usuario.
 
 1. En el Explorador de Soluciones, abre el archivo `Program.cs`.
-2. Busca la línea de código dentro de `Main()` que dice:
+2. Busca la línea dentro de `Main()` que dice:
    ```csharp
    Application.Run(new Form1());
    ```
-3. Cámbiala por el formulario que deseas probar primero. Asegúrate de importar el namespace de la UI (`using DispensarioMedico.UI;`).
+3. Reemplázala por el formulario de Login. Asegúrate de importar el namespace correcto:
    ```csharp
-   Application.Run(new FrmRegistroVisitas()); // o FrmMedicamento(), FrmPaciente(), etc.
+   using DispensarioMedico.UI;
+
+   // ...
+
+   Application.Run(new FrmLogin());
    ```
 
-*(Idealmente, debes crear un formulario contenedor (MDI Parent) con un menú principal que permita abrir los demás formularios, y configurar este formulario MDI en el `Program.cs`).*
+> **Nota:** Si deseas probar un módulo específico directamente sin pasar por el login (durante desarrollo), puedes reemplazar temporalmente `FrmLogin` por el formulario deseado (ej. `new FrmMedicamento()`), pero recuerda revertirlo antes de entrega final.
 
 ---
 
@@ -85,4 +89,55 @@ Por defecto, Visual Studio arranca con un `Form1`. Debes cambiar esto para que e
 
 1. Compila la solución presionando **F6** o yendo a **Compilar** -> **Compilar solución** (Build Solution). Verifica que no haya errores de sintaxis en la ventana de Salida.
 2. Presiona **F5** (o el botón "Iniciar" en la barra de herramientas) para correr la aplicación.
-3. El formulario se abrirá. Puedes probar haciendo un insert o interactuando con el sistema; si la configuración de BD y la conexión son correctas, los datos se guardarán inmediatamente.
+3. El formulario de Login se abrirá. Ingresa las credenciales de prueba para acceder al sistema.
+
+---
+
+## Paso 6: Probar el Módulo de Autenticación (Login)
+
+El módulo de login **no requiere base de datos**; trabaja con un repositorio en memoria. Puedes probarlo inmediatamente después de compilar.
+
+### Credenciales de Prueba
+
+| Correo | Contraseña | Rol | Panel que abre |
+|---|---|---|---|
+| `admin@unapec.edu.do` | `Admin@2024` | admin | `FrmPanelAdmin` (Usuarios, Reportes, Configuración) |
+| `cliente@unapec.edu.do` | `Cliente@2024` | cliente | `FrmPanelCliente` (Pedidos, Facturas, Mi Perfil) |
+| `juan.perez@unapec.edu.do` | `Juan@5678` | cliente | `FrmPanelCliente` (Pedidos, Facturas, Mi Perfil) |
+
+### Casos de Prueba de Seguridad
+
+| Escenario | Resultado esperado |
+|---|---|
+| Campo correo vacío | Mensaje de error inmediato en rojo, sin llamar a la BLL |
+| Campo contraseña vacío | Mensaje de error inmediato en rojo, sin llamar a la BLL |
+| Correo con formato inválido (ej. `abc@`) | Error: "El formato del correo electrónico no es válido" |
+| Contraseña con carácter `'` o `"` | Error: "La contraseña contiene caracteres no permitidos" |
+| 3 intentos fallidos consecutivos | Cuenta bloqueada 30 s; cuenta regresiva visible en pantalla; botón deshabilitado |
+| Durante validación (1.5 s) | Controles deshabilitados; texto "🔐 Verificando credenciales de forma segura..." |
+| Cerrar sesión desde cualquier panel | La sesión se limpia de RAM y el `FrmLogin` se restaura |
+
+### Archivos del Módulo (para incluir en el proyecto)
+
+```
+Entities/
+  └── Usuario.cs
+DAL/
+  └── UsuarioDAL.cs
+BLL/
+  └── UsuarioBLL.cs
+UI/
+  ├── FrmLogin.cs
+  ├── FrmLogin.Designer.cs
+  ├── FrmPanelAdmin.cs
+  ├── FrmPanelAdmin.Designer.cs
+  ├── FrmPanelCliente.cs
+  ├── FrmPanelCliente.Designer.cs
+  ├── SesionActual.cs
+  └── NativeMethods.cs
+```
+
+### Notas para Producción
+- Reemplazar el repositorio en memoria de `UsuarioDAL.cs` por consultas a una tabla `Usuario` en SQL Server.
+- Sustituir el hashing SHA-256 por **BCrypt** o **PBKDF2** con sal aleatoria.
+- Mover las constantes de seguridad (`MaxIntentos`, `SegundosBloqueo`) al `App.config` para configuración sin recompilar.

@@ -180,3 +180,81 @@ Para que los módulos funcionen en el entorno final:
 1.  **Ejecutar Scripts DB:** Correr los 7 scripts SQL generados en la base de datos `DispensarioMedico`.
 2.  **Configurar Connection String:** Centralizar la conexión que actualmente está referenciada en el código de las DALs.
 3.  **Integrar a Visual Studio:** Asegurar que los formularios y clases estén incluidos en el `.csproj` del proyecto y enlazar el menú principal (`MDIParent`).
+
+---
+
+## 9. Trabajo Realizado: Módulo "Autenticación de Usuarios (Login)" con Seguridad
+
+Este módulo implementa el sistema de autenticación completo del Dispensario Médico UNAPEC con controles de seguridad robustos. Opera **en memoria** (sin requerir tabla SQL nueva) mediante un repositorio estático simulado.
+
+### A. [Agente Arquitecto de Datos / DAL]
+**Archivos generados:** `Entities/Usuario.cs`, `DAL/UsuarioDAL.cs`
+
+*   **Entidad (`Usuario.cs`):**
+    *   Propiedades: `Correo` (string), `ContrasenaHash` (string), `Nombre` (string), `Rol` (string: "admin" o "cliente").
+    *   Constructor vacío y constructor con parámetros.
+
+*   **Acceso a Datos (`UsuarioDAL.cs`):**
+    *   Repositorio estático en memoria (`List<Usuario>`) precargado con 3 usuarios de prueba (credenciales documentadas en comentarios del archivo).
+    *   **Credenciales de prueba:**
+        *   `admin@unapec.edu.do` / `Admin@2024` → rol `admin`
+        *   `cliente@unapec.edu.do` / `Cliente@2024` → rol `cliente`
+        *   `juan.perez@unapec.edu.do` / `Juan@5678` → rol `cliente`
+    *   Método `ValidarCredenciales(string correo, string contrasena)`: aplica hashing SHA-256 y comparación en tiempo constante (`SecureStringEquals` con XOR bit a bit) para mitigar timing leaks.
+    *   Helper privado `ComputeSha256(string texto)`: genera hash SHA-256 con `System.Security.Cryptography`.
+
+### B. [Agente de Lógica de Negocio / BLL — Especialista en Seguridad]
+**Archivo generado:** `BLL/UsuarioBLL.cs`
+
+*   **Controles de Seguridad Implementados:**
+    1.  **Sanitización de Entradas:**
+        *   `SanitizarCorreo()`: valida con Regex RFC-5322 simplificado, límite de 150 caracteres.
+        *   `SanitizarContrasena()`: rechaza cadenas vacías/solo-espacios, límite de 128 caracteres, detecta caracteres de inyección básica (`'`, `"`, `;`, `<`, `>`, `\`, etc.).
+    2.  **Control de Fuerza Bruta:**
+        *   Dictionaries en memoria por correo: `_intentosFallidos` y `_tiempoBloqueo`.
+        *   Constantes configurables: `MaxIntentos = 3` y `SegundosBloqueo = 30`.
+        *   Tras 3 intentos fallidos → bloqueo temporal de 30 s con mensaje de tiempo restante.
+        *   El bloqueo se limpia automáticamente al expirar el tiempo.
+    3.  **Retardo Anti-Timing:** `Task.Delay(1500)` aplicado en cada intento vía `AutenticarAsync()`.
+*   **API Pública:** `AutenticarAsync()`, `EstaBloqueado()`, `ObtenerSegundosRestantes()`.
+
+### C. [Agente de Interfaz de Usuario / UI]
+**Archivos generados:**
+*   `UI/FrmLogin.cs` + `UI/FrmLogin.Designer.cs`
+*   `UI/FrmPanelAdmin.cs` + `UI/FrmPanelAdmin.Designer.cs`
+*   `UI/FrmPanelCliente.cs` + `UI/FrmPanelCliente.Designer.cs`
+*   `UI/SesionActual.cs` — Gestión de sesión en RAM
+*   `UI/NativeMethods.cs` — Interop Win32 para ventana arrastrable
+
+*   **FrmLogin (Formulario de Autenticación):**
+    *   Diseño oscuro moderno sin borde (`FormBorderStyle.None`), paleta `bg #0D1117 / surface #161B22 / accent azul-índigo #4F8CFF`.
+    *   Layout programático completo en `ConfigurarEstilosFormulario()` (sin dependencia del WinForms Designer).
+    *   `TextBox` para Correo con `PlaceholderText` y `TextBox` para Contraseña con `UseSystemPasswordChar = true` por defecto.
+    *   Botón "ojo" (👁) que alterna `UseSystemPasswordChar` para mostrar/ocultar contraseña.
+    *   Validación reactiva: muestra error en rojo si los campos están vacíos antes de llamar a la BLL.
+    *   Estado de carga: deshabilita todos los controles y muestra `"🔐 Verificando credenciales de forma segura..."` durante el `await`.
+    *   Notificación de bloqueo: mensaje en rojo con cuenta regresiva actualizada cada segundo mediante `System.Windows.Forms.Timer`.
+    *   Compatible con tecla `Enter` en ambos campos para disparar el login.
+
+*   **FrmPanelAdmin:**
+    *   Sidebar izquierdo (`DockStyle.Left`, 230 px) con avatar, nombre, badge "ADMINISTRADOR" en verde.
+    *   Secciones: 👥 Usuarios, 📊 Reportes, ⚙️ Configuración.
+    *   Panel de contenido dinámico que cambia según la sección seleccionada.
+    *   Botón "⏻ Cerrar Sesión" con confirmación → llama a `SesionActual.Limpiar()` y cierra el panel.
+
+*   **FrmPanelCliente:**
+    *   Mismo patrón que Admin pero con paleta verde-teal (`#38D39F`) y badge "CLIENTE" en azul cielo.
+    *   Secciones: 📦 Mis Pedidos, 🧾 Facturas, 👤 Mi Perfil.
+    *   La sección "Mi Perfil" despliega nombre, correo y rol del usuario autenticado.
+    *   Botón "⏻ Cerrar Sesión" con misma lógica de limpieza.
+
+*   **SesionActual.cs:** Clase estática con propiedad `Usuario` y método `Limpiar()` que nulifica la referencia (permite GC de las credenciales en RAM).
+
+*   **Redirección post-login:** Tras autenticación exitosa, `FrmLogin` se oculta (`Hide()`), abre el panel correspondiente según el rol, y al cerrar el panel el evento `FormClosed` limpia la sesión y restaura el login (`Show()`).
+
+### Notas de Integración
+*   Todos los archivos respetan el namespace `DispensarioMedico`.
+*   Para que `FrmLogin` sea el punto de entrada: en `Program.cs` cambiar `Application.Run(new TuFormularioActual())` por `Application.Run(new FrmLogin())`.
+*   No requiere cambios en la base de datos SQL Server (repositorio en memoria).
+*   Para producción: reemplazar el repositorio en memoria de `UsuarioDAL.cs` por consultas a la tabla `Usuario` en SQL Server, y sustituir SHA-256 por BCrypt/PBKDF2.
+
